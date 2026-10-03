@@ -19,7 +19,6 @@ app.get('/api/health', (c) => {
     framework: 'Hono Web Standard',
     optimizer: 'https://wsrv.nl/',
     database: 'Cloudflare D1 SQL (Auto-Schema Injected)',
-    storage: 'Cloudflare R2',
     timestamp: new Date().toISOString(),
   });
 });
@@ -38,7 +37,7 @@ app.get('/api/credentials/generate', (c) => {
 
   const config: CloudflareDeployConfig = {
     projectName: 'flaredrop-media-cdn',
-    githubRepoUrl: 'https://github.com/flaredrop-cdn/flare-drop-cdn',
+    githubRepoUrl: 'https://github.com/ram4255/flaredrop-cdn',
     d1DatabaseName: 'flaredrop_cdn_db',
     d1DatabaseId: `d1_${randomHex(4)}`,
     r2BucketName: 'flaredrop-media-store',
@@ -64,7 +63,7 @@ app.post('/api/templates', async (c) => {
   
   const config: CloudflareDeployConfig = body.config || {
     projectName: 'flaredrop-media-cdn',
-    githubRepoUrl: 'https://github.com/flaredrop-cdn/flare-drop-cdn',
+    githubRepoUrl: 'https://github.com/ram4255/flaredrop-cdn',
     d1DatabaseName: 'flaredrop_cdn_db',
     d1DatabaseId: `d1_${randomHex()}`,
     r2BucketName: 'flaredrop-media-store',

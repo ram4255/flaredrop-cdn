@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS settings (
 `;
 
 export function generateCloudflareTemplates(config: CloudflareDeployConfig): RepoFile[] {
-  const repoUrl = config.githubRepoUrl || 'https://github.com/singhramprasad522/flaredrop-cdn';
+  const repoUrl = config.githubRepoUrl || 'https://github.com/ram4255/flaredrop-cdn';
 
   const readmeMd = `# ${config.projectName} ⚡
 

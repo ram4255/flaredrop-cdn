@@ -44,7 +44,7 @@ export default function App() {
 
     return {
       projectName: 'flaredrop-media-cdn',
-      githubRepoUrl: 'https://github.com/singhramprasad522/flaredrop-cdn',
+      githubRepoUrl: 'https://github.com/ram4255/flaredrop-cdn',
       d1DatabaseName: 'flaredrop_cdn_db',
       d1DatabaseId: `d1_${randomHex(4)}`,
       r2BucketName: `flaredrop-media-store`,

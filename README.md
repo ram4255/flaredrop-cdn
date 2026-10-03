@@ -3,7 +3,7 @@
 > Open-Source, Zero-Configuration Personal Image & Media CDN built with **Hono** for **Cloudflare Workers** & **D1 Database**, featuring automated edge image optimization via **wsrv.nl**.
 > **100% Free Tier · Zero Credit Card Required** (Runs entirely on Cloudflare's free D1 database without payment setup).
 
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/singhramprasad522/flaredrop-cdn)
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/ram4255/flaredrop-cdn)
 
 Deploy your own high-speed media CDN to Cloudflare in **1 click**. No credit card needed, no manual database configuration, zero egress fees, and sub-10ms global edge cache delivery.
 
@@ -12,14 +12,14 @@ Deploy your own high-speed media CDN to Cloudflare in **1 click**. No credit car
 ## 🚀 1-Click Deployment (No Credit Card Needed)
 
 Click the **Deploy to Cloudflare Workers** button above. Cloudflare will automatically:
-1. Fork/clone this repository to your GitHub account.
+1. Fork/clone this repository to your GitHub account (`https://github.com/ram4255/flaredrop-cdn`).
 2. Automatically provision your **Cloudflare D1 Database** (`flaredrop_cdn_db`) on the 100% free tier.
 3. Automatically execute and inject the database schema (`schema.sql`).
 4. Deploy the **Hono Edge Engine** to 300+ global Cloudflare data centers.
 5. On your first visit to your deployed worker URL, a **one-time owner setup** prompts you to create your master password.
 
 > **Why D1 Storage over R2?**
-> Cloudflare R2 requires a credit card / billing setup to activate, even on the free tier. FlareDrop CDN uses **Cloudflare D1 Database** natively for both image metadata and binary BLOB delivery, ensuring **anyone** can deploy for free without providing a credit card. (Optional R2 bucket can still be bound if desired).
+> Cloudflare R2 requires a credit card / billing setup to activate, even on the free tier. FlareDrop CDN uses **Cloudflare D1 Database** natively for both image metadata and binary BLOB delivery, ensuring **anyone** can deploy for free without providing a credit card.
 
 ---
 
@@ -27,7 +27,7 @@ Click the **Deploy to Cloudflare Workers** button above. Cloudflare will automat
 
 \`\`\`bash
 # 1. Clone repository
-git clone https://github.com/singhramprasad522/flaredrop-cdn.git
+git clone https://github.com/ram4255/flaredrop-cdn.git
 cd flaredrop-cdn
 
 # 2. Install dependencies
@@ -108,3 +108,4 @@ curl https://YOUR_WORKER.workers.dev/api/health
 ## 📄 License
 
 MIT Open Source License. Built with Vite, React, Hono, Cloudflare Workers, D1 Database, and wsrv.nl.
+Repository: [https://github.com/ram4255/flaredrop-cdn](https://github.com/ram4255/flaredrop-cdn)

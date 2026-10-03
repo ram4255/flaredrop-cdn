@@ -2,5 +2,7 @@
   "name": "FlareDrop CDN - Open Source Cloudflare Media CDN",
   "description": "Deploy your own zero-config image and media CDN to Cloudflare in 1-click. Features automatic client-side and edge image optimization via wsrv.nl, Hono backend, auto-generated secrets, and R2 media management.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
