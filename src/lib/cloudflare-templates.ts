@@ -417,5 +417,17 @@ export default app;
       content: packageJson,
       description: 'Node project dependencies and Wrangler deploy scripts',
     },
+    {
+      name: '.npmrc',
+      path: '.npmrc',
+      content: `package-lock=false\nlegacy-peer-deps=true\n`,
+      description: 'NPM configuration to prevent CI lockfile mismatches',
+    },
+    {
+      name: '.gitignore',
+      path: '.gitignore',
+      content: `node_modules/\ndist/\n*.log\n.env*\n!.env.example\nbun.lock*\npackage-lock.json\n`,
+      description: 'Git ignore rules for lockfiles and build outputs',
+    },
   ];
 }
