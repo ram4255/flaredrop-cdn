@@ -4,11 +4,16 @@
   "main": "src/server/app.ts",
   "compatibility_date": "2026-03-01",
   "compatibility_flags": ["nodejs_compat"],
+  // Automatically serve the Vite React SPA frontend from ./dist
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
   "observability": {
     "enabled": true
   },
   // Cloudflare D1 Serverless SQL Database - 100% Free Tier (NO Credit Card Required!)
-  // Schema auto-created on initial worker boot
   "d1_databases": [
     {
       "binding": "DB",

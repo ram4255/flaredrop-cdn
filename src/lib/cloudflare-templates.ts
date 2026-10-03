@@ -88,6 +88,11 @@ All media endpoints support dynamic query parameters powered by the global [wsrv
   "main": "src/index.ts",
   "compatibility_date": "2026-03-01",
   "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
   "observability": {
     "enabled": true
   },
