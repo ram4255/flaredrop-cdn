@@ -365,6 +365,46 @@ async function serveMediaBlob(c: any, rawParam: string) {
 
   const maxAge = c.env?.CACHE_MAX_AGE || '31536000';
 
+  // Check if transformation query parameters exist (e.g. ?w=800&q=80)
+  const query = c.req.query();
+  const hasTransformParams = Object.keys(query).some((k) => ['w', 'h', 'q', 'output', 'fit', 'blur', 'sharp'].includes(k));
+
+  if (hasTransformParams) {
+    const origin = getRequestOrigin(c);
+    const directMediaUrl = `${origin}/media/${cleanId}`;
+    const wsrvBase = c.env?.WSRV_ENDPOINT || 'https://wsrv.nl/';
+    const optimizerUrl = new URL(wsrvBase);
+    optimizerUrl.searchParams.set('url', directMediaUrl);
+
+    for (const [k, v] of Object.entries(query)) {
+      if (v !== undefined && v !== null) {
+        optimizerUrl.searchParams.set(k, String(v));
+      }
+    }
+    if (!optimizerUrl.searchParams.has('output')) {
+      optimizerUrl.searchParams.set('output', c.env?.DEFAULT_FORMAT || 'webp');
+    }
+    if (!optimizerUrl.searchParams.has('q')) {
+      optimizerUrl.searchParams.set('q', c.env?.DEFAULT_QUALITY || '80');
+    }
+
+    try {
+      const response = await fetch(optimizerUrl.toString(), {
+        headers: { 'User-Agent': 'FlareDrop-CDN-Edge-Worker' },
+      });
+      if (response.ok) {
+        const headers = new Headers(response.headers);
+        headers.set('Cache-Control', `public, max-age=${maxAge}, s-maxage=${maxAge}, immutable`);
+        headers.set('X-CDN-Cache', 'HIT');
+        headers.set('X-Optimized-By', 'FlareDrop-wsrv.nl');
+        headers.set('Access-Control-Allow-Origin', '*');
+        return new Response(response.body, { status: response.status, headers });
+      }
+    } catch {
+      // Fallback directly to raw bytes if wsrv.nl proxy fails
+    }
+  }
+
   return new Response(rawBytes, {
     headers: {
       'Content-Type': record.mime_type || 'image/webp',
@@ -384,47 +424,7 @@ app.get('/i/:id', (c) => serveMediaBlob(c, c.req.param('id')));
 
 // Dynamic Image Optimization via wsrv.nl proxy (with correct origin detection)
 app.get('/image/:id', async (c) => {
-  const id = c.req.param('id');
-  const origin = getRequestOrigin(c);
-  const directMediaUrl = `${origin}/cdn/${id}.webp`;
-
-  const wsrvBase = c.env?.WSRV_ENDPOINT || 'https://wsrv.nl/';
-  const optimizerUrl = new URL(wsrvBase);
-  optimizerUrl.searchParams.set('url', directMediaUrl);
-
-  const query = c.req.query();
-  for (const [k, v] of Object.entries(query)) {
-    optimizerUrl.searchParams.set(k, v);
-  }
-
-  if (!optimizerUrl.searchParams.has('output')) {
-    optimizerUrl.searchParams.set('output', c.env?.DEFAULT_FORMAT || 'webp');
-  }
-  if (!optimizerUrl.searchParams.has('q')) {
-    optimizerUrl.searchParams.set('q', c.env?.DEFAULT_QUALITY || '80');
-  }
-
-  try {
-    const response = await fetch(optimizerUrl.toString(), {
-      headers: { 'User-Agent': 'FlareDrop-CDN-Edge-Worker' },
-    });
-
-    if (!response.ok) {
-      // Fallback directly to direct media if wsrv.nl cannot reach localhost or DNS is unresolvable
-      return serveMediaBlob(c, id);
-    }
-
-    const maxAge = c.env?.CACHE_MAX_AGE || '31536000';
-    const headers = new Headers(response.headers);
-    headers.set('Cache-Control', `public, max-age=${maxAge}, s-maxage=${maxAge}, immutable`);
-    headers.set('X-CDN-Cache', 'HIT');
-    headers.set('X-Optimized-By', 'FlareDrop-wsrv.nl');
-
-    return new Response(response.body, { status: response.status, headers });
-  } catch {
-    // If fetch failed, fallback directly to stored D1 binary
-    return serveMediaBlob(c, id);
-  }
+  return serveMediaBlob(c, c.req.param('id'));
 });
 
 // Returns D1 schema SQL
@@ -486,7 +486,12 @@ app.post('/api/templates', async (c) => {
 // Fallback to static SPA assets (React frontend)
 app.all('*', async (c) => {
   if (c.env?.ASSETS) {
-    return c.env.ASSETS.fetch(c.req.raw);
+    const res = await c.env.ASSETS.fetch(c.req.raw);
+    if (res.status === 404 && c.req.method === 'GET') {
+      const indexUrl = new URL('/index.html', c.req.url);
+      return c.env.ASSETS.fetch(new Request(indexUrl.toString(), c.req.raw));
+    }
+    return res;
   }
   return c.text('FlareDrop CDN Edge Engine Online', 200);
 });
