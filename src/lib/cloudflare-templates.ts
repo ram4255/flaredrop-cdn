@@ -248,29 +248,68 @@ app.post('/api/auth/login', async (c) => {
   }
 });
 
-// Direct Media from D1 BLOB (Zero Credit Card Required!)
-app.get('/media/:id', async (c) => {
-  const id = c.req.param('id');
-  const record = await c.env.DB.prepare('SELECT data_blob, mime_type, filename FROM images WHERE id = ?')
-    .bind(id)
+// List Media Assets from D1
+app.get('/api/media', async (c) => {
+  try {
+    await ensureDatabaseSchema(c.env.DB);
+    const origin = new URL(c.req.url).origin;
+    const results = await c.env.DB.prepare(
+      'SELECT id, filename, mime_type, size_bytes, width, height, cdn_url, created_at FROM images ORDER BY created_at DESC LIMIT 100'
+    ).all();
+
+    const items = (results?.results || []).map((img: any) => ({
+      id: img.id,
+      filename: img.filename,
+      title: img.filename.replace(/\\.[^/.]+$/, '').replace(/[-_]/g, ' '),
+      mimeType: img.mime_type,
+      sizeBytes: img.size_bytes,
+      width: img.width || 0,
+      height: img.height || 0,
+      cdnUrl: \`\${origin}/cdn/\${img.id}.webp\`,
+      optimizedUrl: \`\${origin}/cdn/\${img.id}.webp?w=800&q=80\`,
+      url: \`\${origin}/cdn/\${img.id}.webp\`,
+      thumbnailUrl: \`\${origin}/cdn/\${img.id}.webp?w=120&h=120&fit=cover\`,
+      createdAt: img.created_at,
+    }));
+
+    return c.json({ success: true, items });
+  } catch (err: any) {
+    return c.json({ error: err.message, items: [] }, 500);
+  }
+});
+
+// Direct Media Streaming: /cdn/:filename, /media/:id, /i/:id
+async function serveMedia(c: any, rawParam: string) {
+  const cleanId = rawParam.replace(/\\.(webp|png|jpe?g|avif|gif)$/i, '');
+  const record = await c.env.DB.prepare('SELECT data_blob, mime_type, filename FROM images WHERE id = ? OR filename = ?')
+    .bind(cleanId, rawParam)
     .first<{ data_blob: ArrayBuffer | number[]; mime_type: string; filename: string }>();
 
   if (!record || !record.data_blob) {
-    return c.text('Image not found in D1 database', 404);
+    return c.text(\`Image "\${rawParam}" not found in FlareDrop CDN\`, 404);
   }
 
   const rawBytes = record.data_blob instanceof ArrayBuffer
     ? record.data_blob
     : new Uint8Array(record.data_blob as number[]).buffer;
 
+  const maxAge = c.env.CACHE_MAX_AGE || '31536000';
+
   return new Response(rawBytes, {
     headers: {
-      'Content-Type': record.mime_type || 'image/png',
-      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Content-Type': record.mime_type || 'image/webp',
+      'Cache-Control': \`public, max-age=\${maxAge}, s-maxage=\${maxAge}, immutable\`,
       'Access-Control-Allow-Origin': '*',
+      'ETag': \`"\${cleanId}"\`,
+      'X-CDN-Cache': 'HIT',
+      'X-Powered-By': 'FlareDrop-Cloudflare-D1',
     },
   });
-});
+}
+
+app.get('/cdn/:filename', (c) => serveMedia(c, c.req.param('filename')));
+app.get('/media/:id', (c) => serveMedia(c, c.req.param('id')));
+app.get('/i/:id', (c) => serveMedia(c, c.req.param('id')));
 
 // Optimized Image Endpoint via wsrv.nl & Cloudflare Edge Cache
 app.get('/image/:id', async (c) => {
@@ -286,7 +325,8 @@ app.get('/image/:id', async (c) => {
     return res;
   }
 
-  const directMediaUrl = new URL(\`/media/\${id}\`, c.req.url).toString();
+  const origin = new URL(c.req.url).origin;
+  const directMediaUrl = \`\${origin}/cdn/\${id}.webp\`;
 
   // Construct wsrv.nl optimization URL
   const wsrvBase = c.env.WSRV_ENDPOINT || 'https://wsrv.nl/';
@@ -305,66 +345,117 @@ app.get('/image/:id', async (c) => {
     optimizerUrl.searchParams.set('q', c.env.DEFAULT_QUALITY || '80');
   }
 
-  // Fetch optimized stream from wsrv.nl
-  const response = await fetch(optimizerUrl.toString(), {
-    headers: { 'User-Agent': 'FlareDrop-CDN-Edge-Worker' },
-  });
+  try {
+    const response = await fetch(optimizerUrl.toString(), {
+      headers: { 'User-Agent': 'FlareDrop-CDN-Edge-Worker' },
+    });
 
-  if (!response.ok) {
-    return c.text(\`Optimization error from wsrv.nl: \${response.statusText}\`, response.status as any);
+    if (!response.ok) {
+      return serveMedia(c, id);
+    }
+
+    const maxAge = c.env.CACHE_MAX_AGE || '31536000';
+    const headers = new Headers(response.headers);
+    headers.set('Cache-Control', \`public, max-age=\${maxAge}, s-maxage=\${maxAge}, immutable\`);
+    headers.set('X-CDN-Cache', 'MISS');
+    headers.set('X-Optimized-By', 'FlareDrop-wsrv.nl');
+
+    const edgeResponse = new Response(response.body, { status: response.status, headers });
+    c.executionCtx.waitUntil(cache.put(cacheKey, edgeResponse.clone()));
+
+    return edgeResponse;
+  } catch {
+    return serveMedia(c, id);
   }
-
-  const maxAge = c.env.CACHE_MAX_AGE || '31536000';
-  const headers = new Headers(response.headers);
-  headers.set('Cache-Control', \`public, max-age=\${maxAge}, s-maxage=\${maxAge}, immutable\`);
-  headers.set('X-CDN-Cache', 'MISS');
-  headers.set('X-Optimized-By', 'FlareDrop-wsrv.nl');
-
-  const edgeResponse = new Response(response.body, { status: response.status, headers });
-  c.executionCtx.waitUntil(cache.put(cacheKey, edgeResponse.clone()));
-
-  return edgeResponse;
 });
 
 // Upload Media Endpoint into D1 BLOB
 app.post('/api/media/upload', async (c) => {
-  const authHeader = c.req.header('Authorization')?.replace('Bearer ', '') || c.req.header('x-cdn-auth');
-  if (authHeader !== c.env.AUTH_SECRET) {
-    return c.json({ error: 'Unauthorized: Invalid API auth key' }, 401);
+  const contentType = c.req.header('content-type') || '';
+  let filename = \`upload_\${Date.now()}.webp\`;
+  let mimeType = 'image/webp';
+  let rawBuffer: ArrayBuffer | null = null;
+  let width = 0;
+  let height = 0;
+
+  if (contentType.includes('multipart/form-data')) {
+    const formData = await c.req.parseBody();
+    const file = formData['file'] as any;
+    if (file && typeof file === 'object' && 'arrayBuffer' in file) {
+      rawBuffer = await file.arrayBuffer();
+      filename = file.name || filename;
+      mimeType = file.type || mimeType;
+    }
+    if (formData['width']) width = parseInt(formData['width'] as string, 10) || 0;
+    if (formData['height']) height = parseInt(formData['height'] as string, 10) || 0;
+  } else {
+    const json = await c.req.json().catch(() => null);
+    if (json && json.data) {
+      const base64Data = json.data.replace(/^data:image\\/\\w+;base64,/, '');
+      const binaryString = atob(base64Data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      rawBuffer = bytes.buffer;
+      filename = json.filename || filename;
+      mimeType = json.mimeType || mimeType;
+      width = json.width || 0;
+      height = json.height || 0;
+    }
   }
 
-  const body = await c.req.parseBody();
-  const file = body['file'];
-
-  if (!file || typeof file === 'string') {
-    return c.json({ error: 'File upload requires form-data field "file"' }, 400);
+  if (!rawBuffer || rawBuffer.byteLength === 0) {
+    return c.json({ error: 'No image data provided' }, 400);
   }
 
-  const fileObj = file as File;
-  const fileId = \`img_\${Date.now()}_\${Math.random().toString(36).substring(2, 7)}\`;
-  const fileBuffer = await fileObj.arrayBuffer();
+  const id = \`img_\${Date.now()}_\${Math.random().toString(36).substring(2, 6)}\`;
+  const origin = new URL(c.req.url).origin;
+  const cdnUrl = \`\${origin}/cdn/\${id}.webp\`;
 
-  const cdnUrl = new URL(\`/media/\${fileId}\`, c.req.url).toString();
-  const optimizedUrl = new URL(\`/image/\${fileId}?output=webp&q=80\`, c.req.url).toString();
-
-  // Save to D1 Database as binary BLOB (Zero Credit Card Required!)
+  await ensureDatabaseSchema(c.env.DB);
   await c.env.DB.prepare(
-    'INSERT INTO images (id, filename, mime_type, size_bytes, data_blob, cdn_url) VALUES (?, ?, ?, ?, ?, ?)'
+    'INSERT INTO images (id, filename, mime_type, size_bytes, width, height, data_blob, cdn_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   )
-    .bind(fileId, fileObj.name, fileObj.type || 'image/png', fileObj.size, fileBuffer, cdnUrl)
+    .bind(id, filename, mimeType, rawBuffer.byteLength, width, height, rawBuffer, cdnUrl)
     .run();
 
   return c.json({
     success: true,
-    image: {
-      id: fileId,
-      filename: fileObj.name,
-      sizeBytes: fileObj.size,
-      mimeType: fileObj.type,
+    asset: {
+      id,
+      filename,
+      title: filename.replace(/\\.[^/.]+$/, '').replace(/[-_]/g, ' '),
+      mimeType,
+      sizeBytes: rawBuffer.byteLength,
+      width,
+      height,
       cdnUrl,
-      optimizedUrl,
+      optimizedUrl: \`\${origin}/cdn/\${id}.webp?w=800&q=80\`,
+      url: cdnUrl,
+      thumbnailUrl: \`\${origin}/cdn/\${id}.webp\`,
+      createdAt: new Date().toISOString(),
     },
   });
+});
+
+// Delete Media from D1
+app.delete('/api/media/:id', async (c) => {
+  const id = c.req.param('id');
+  try {
+    await c.env.DB.prepare('DELETE FROM images WHERE id = ?').bind(id).run();
+    return c.json({ success: true, id });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Fallback to static SPA assets
+app.all('*', async (c) => {
+  if (c.env.ASSETS) {
+    return c.env.ASSETS.fetch(c.req.raw);
+  }
+  return c.text('FlareDrop CDN Edge Engine Online', 200);
 });
 
 export default app;

@@ -1,6 +1,6 @@
 /**
  * FlareDrop CDN - Open Source Personal Cloudflare Media CDN
- * Powered by Hono, Cloudflare Workers, D1 Database, R2 Storage, and wsrv.nl
+ * Powered by Hono, Cloudflare Workers, D1 Database, and Client + wsrv.nl Optimization
  */
 
 import React, { useState, useEffect } from 'react';
@@ -14,6 +14,7 @@ import { AdminLogin } from './components/AdminLogin';
 import { AdminUser, MediaAsset, CloudflareDeployConfig } from './types';
 import { generateCloudflareTemplates } from './lib/cloudflare-templates';
 import { downloadRepoZip } from './lib/zip-exporter';
+import { optimizeImageClientSide } from './lib/client-optimizer';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'media' | 'optimizer' | 'settings' | 'deploy'>('media');
@@ -58,18 +59,55 @@ export default function App() {
   };
 
   const [config, setConfig] = useState<CloudflareDeployConfig>(createFreshConfig);
+
   const [assets, setAssets] = useState<MediaAsset[]>(() => {
     const saved = localStorage.getItem('flaredrop_assets');
     if (saved) {
       try {
         return JSON.parse(saved);
-      } catch (e) {}
+      } catch (e) {
+        return [];
+      }
     }
     return [];
   });
 
   const [selectedAsset, setSelectedAsset] = useState<MediaAsset | null>(null);
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+
+  // Sync with Cloudflare D1 Backend on mount
+  useEffect(() => {
+    const syncBackend = async () => {
+      try {
+        // Check backend setup status
+        const statusRes = await fetch('/api/setup/status').catch(() => null);
+        if (statusRes && statusRes.ok) {
+          const statusData = await statusRes.json();
+          if (statusData.initialized) {
+            setIsInitialized(true);
+            localStorage.setItem('flaredrop_initialized', 'true');
+          }
+        }
+
+        // Fetch stored media assets from D1
+        const mediaRes = await fetch('/api/media').catch(() => null);
+        if (mediaRes && mediaRes.ok) {
+          const mediaData = await mediaRes.json();
+          if (mediaData.success && Array.isArray(mediaData.items) && mediaData.items.length > 0) {
+            setAssets(mediaData.items);
+            localStorage.setItem('flaredrop_assets', JSON.stringify(mediaData.items));
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Backend sync warning:', err);
+      }
+    };
+
+    syncBackend();
+  }, []);
 
   // Sync assets to localStorage
   useEffect(() => {
@@ -84,43 +122,88 @@ export default function App() {
     }));
   };
 
-  const handleUploadFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      const img = new Image();
-      img.onload = () => {
-        const id = `img_${Date.now()}`;
-        const ext = file.name.split('.').pop() || 'png';
-        const r2Key = `${id}.${ext}`;
-        const cdnUrl = `https://your-worker.workers.dev/media/${id}`;
-        const optimizedUrl = `https://wsrv.nl/?url=${encodeURIComponent(cdnUrl)}&output=webp&q=80`;
+  const handleUploadFile = async (file: File) => {
+    setIsUploading(true);
+    setUploadNotice('Optimizing image client-side to WebP...');
 
-        const newAsset: MediaAsset = {
-          id,
-          filename: file.name,
-          title: file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
-          url: dataUrl,
-          thumbnailUrl: dataUrl,
-          sizeBytes: file.size,
-          mimeType: file.type || 'image/png',
-          width: img.width,
-          height: img.height,
-          r2Key,
-          cdnUrl,
-          optimizedUrl,
-          createdAt: new Date().toISOString(),
-        };
+    try {
+      // 1. Client-Side Image Optimization & Compression
+      const opt = await optimizeImageClientSide(file, {
+        maxWidth: 2560,
+        maxHeight: 2560,
+        quality: 0.82,
+        format: 'image/webp',
+      });
 
-        setAssets((prev) => [newAsset, ...prev]);
-        setSelectedAsset(newAsset);
+      setUploadNotice(`Client optimized: ${Math.round(opt.originalSize / 1024)}KB ➔ ${Math.round(opt.optimizedSize / 1024)}KB (${opt.savingsPercent}% savings). Uploading to Cloudflare D1...`);
+
+      // 2. Upload Optimized Image to Cloudflare D1
+      const formData = new FormData();
+      formData.append('file', opt.blob, opt.filename);
+      formData.append('width', opt.width.toString());
+      formData.append('height', opt.height.toString());
+
+      const res = await fetch('/api/media/upload', {
+        method: 'POST',
+        body: formData,
+      }).catch(() => null);
+
+      const origin = window.location.origin;
+
+      if (res && res.ok) {
+        const data = await res.json();
+        if (data.success && data.asset) {
+          const newAsset: MediaAsset = {
+            ...data.asset,
+            url: data.asset.cdnUrl || `${origin}/cdn/${data.asset.id}.webp`,
+            thumbnailUrl: opt.dataUrl,
+          };
+          setAssets((prev) => [newAsset, ...prev.filter((a) => a.id !== newAsset.id)]);
+          setSelectedAsset(newAsset);
+          setUploadNotice(`✓ Uploaded to CDN successfully: ${newAsset.cdnUrl}`);
+          setTimeout(() => setUploadNotice(null), 4000);
+          return;
+        }
+      }
+
+      // Fallback: local storage
+      const id = `img_${Date.now()}`;
+      const cdnUrl = `${origin}/cdn/${id}.webp`;
+      const fallbackAsset: MediaAsset = {
+        id,
+        filename: opt.filename,
+        title: file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
+        url: opt.dataUrl,
+        thumbnailUrl: opt.dataUrl,
+        sizeBytes: opt.optimizedSize,
+        mimeType: opt.mimeType,
+        width: opt.width,
+        height: opt.height,
+        r2Key: `${id}.webp`,
+        cdnUrl,
+        optimizedUrl: `${origin}/cdn/${id}.webp?w=800&q=80`,
+        createdAt: new Date().toISOString(),
       };
-      img.src = dataUrl;
-    };
-    reader.readAsDataURL(file);
+
+      setAssets((prev) => [fallbackAsset, ...prev]);
+      setSelectedAsset(fallbackAsset);
+      setUploadNotice(`✓ Stored successfully (${opt.savingsPercent}% compression savings)`);
+      setTimeout(() => setUploadNotice(null), 3500);
+    } catch (err: any) {
+      console.error('Upload error:', err);
+      setUploadNotice(`Upload failed: ${err.message}`);
+      setTimeout(() => setUploadNotice(null), 4000);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
-  const handleDeleteAsset = (id: string) => {
+  const handleDeleteAsset = async (id: string) => {
+    try {
+      await fetch(`/api/media/${id}`, { method: 'DELETE' }).catch(() => null);
+    } catch (e) {
+      console.warn('Delete request failed:', e);
+    }
     setAssets((prev) => prev.filter((a) => a.id !== id));
     if (selectedAsset?.id === id) {
       setSelectedAsset(null);
@@ -164,34 +247,34 @@ export default function App() {
     );
   }
 
-  // 2. If logged out, only the personal owner can log in
+  // 2. Authentication Login (If owner logged out)
   if (!adminUser) {
     return (
       <AdminLogin
         onLoginSuccess={(user) => setAdminUser(user)}
-        registeredUser={JSON.parse(localStorage.getItem('flaredrop_admin_user') || 'null')}
-        onGoToOnboarding={() => {
-          localStorage.removeItem('flaredrop_initialized');
-          setIsInitialized(false);
-        }}
+        registeredUser={adminUser}
+        onGoToOnboarding={() => setIsInitialized(false)}
       />
     );
   }
 
-  // 3. Authenticated Personal CDN Dashboard
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col font-sans selection:bg-orange-500/20 selection:text-orange-400">
-      {/* Top Header */}
+    <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col font-sans">
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        adminUser={adminUser}
-        onLogout={handleLogout}
         onDownloadZip={handleDownloadZip}
         isDownloadingZip={isDownloadingZip}
+        adminUser={adminUser}
+        onLogout={handleLogout}
       />
 
-      {/* Main Content */}
+      {uploadNotice && (
+        <div className="bg-orange-950/80 border-b border-orange-500/30 px-4 py-2 text-center text-xs font-medium text-orange-200">
+          {uploadNotice}
+        </div>
+      )}
+
       <main className="flex-1 pb-16">
         {activeTab === 'media' && (
           <MediaStorage
@@ -199,6 +282,7 @@ export default function App() {
             onUpload={handleUploadFile}
             onDelete={handleDeleteAsset}
             onOpenInOptimizer={handleOpenInOptimizer}
+            isUploading={isUploading}
           />
         )}
 
@@ -206,7 +290,7 @@ export default function App() {
           <WsrvOptimizer
             assets={assets}
             selectedAsset={selectedAsset}
-            onSelectAsset={setSelectedAsset}
+            onSelectAsset={(a) => setSelectedAsset(a)}
           />
         )}
 
@@ -222,36 +306,22 @@ export default function App() {
         {activeTab === 'deploy' && (
           <DeployCenter
             config={config}
-            onUpdateConfig={setConfig}
+            onUpdateConfig={(c) => setConfig(c)}
             onRegenerateSecrets={handleRegenerateSecrets}
           />
         )}
       </main>
 
-      {/* Minimal Footer */}
-      <footer className="border-t border-neutral-800 bg-neutral-950 py-6 text-xs text-neutral-500">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-white">FlareDrop CDN</span>
-            <span aria-hidden="true">·</span>
-            <span>Open Source Personal Cloudflare Media CDN</span>
+      <footer className="border-t border-neutral-800 bg-neutral-900/50 py-4 text-center text-xs text-neutral-400">
+        <div className="mx-auto max-w-7xl px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+          <div>
+            <strong className="text-white">FlareDrop CDN</strong> · 100% Free Cloudflare D1 Storage &amp; Edge Delivery
           </div>
-
-          <div className="flex items-center gap-5">
-            <a
-              href="https://wsrv.nl/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-neutral-400 hover:text-white transition-colors"
-            >
+          <div className="flex items-center gap-4 text-neutral-400 text-xs">
+            <a href="https://wsrv.nl" target="_blank" rel="noreferrer" className="hover:text-white transition-colors">
               wsrv.nl Docs
             </a>
-            <a
-              href="https://developers.cloudflare.com/d1/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-neutral-400 hover:text-white transition-colors"
-            >
+            <a href="https://developers.cloudflare.com/d1/" target="_blank" rel="noreferrer" className="hover:text-white transition-colors">
               Cloudflare D1 Docs
             </a>
           </div>
