@@ -127,14 +127,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   -F "file=@photo.webp"`;
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
+    <div className="mx-auto max-w-5xl px-3 sm:px-6 lg:px-8 py-6 space-y-6">
       {/* Header */}
       <div className="border-b border-neutral-800 pb-5">
         <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400 mb-1">
           <ShieldCheck className="h-4 w-4" />
-          <span>99% Hardened Military-Grade Personal CDN Architecture</span>
+          <span>Hardened Personal CDN Architecture</span>
         </div>
-        <h1 className="text-xl font-bold tracking-tight text-white sm:text-2xl">
+        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
           Security &amp; API Management Console
         </h1>
         <p className="mt-1 text-xs text-neutral-400">
@@ -143,7 +143,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       {/* 4-Pillar Security Status */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-3.5 space-y-1">
           <div className="flex items-center justify-between text-xs text-neutral-400">
             <span className="text-white font-semibold flex items-center gap-1.5">

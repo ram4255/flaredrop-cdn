@@ -104,7 +104,7 @@ export const WsrvOptimizer: React.FC<WsrvOptimizerProps> = ({
   }, [cleanCdnUrl]);
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
+    <div className="mx-auto max-w-7xl px-3 sm:px-6 lg:px-8 py-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-800 pb-5">
         <div>
@@ -113,22 +113,22 @@ export const WsrvOptimizer: React.FC<WsrvOptimizerProps> = ({
             <span aria-hidden="true">·</span>
             <span>https://wsrv.nl/</span>
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-white sm:text-2xl">
-            wsrv.nl Dynamic Image Optimizer
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
+            Dynamic Image Optimizer Studio
           </h1>
           <p className="mt-1 text-xs text-neutral-400">
-            Transforms images on-the-fly using URL query parameters with Cloudflare edge caching.
+            Tune and transform images on-the-fly using URL query parameters with Cloudflare edge caching.
           </p>
         </div>
 
         {/* Source Switcher */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto">
           <button
             type="button"
             onClick={() => setUseExternal(false)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+            className={`px-3 py-1.5 text-xs font-medium rounded-xl transition-colors whitespace-nowrap ${
               !useExternal
-                ? 'bg-orange-600 text-white'
+                ? 'bg-orange-600 text-white font-semibold shadow-md'
                 : 'text-neutral-400 hover:bg-neutral-900 hover:text-white'
             }`}
           >
@@ -137,9 +137,9 @@ export const WsrvOptimizer: React.FC<WsrvOptimizerProps> = ({
           <button
             type="button"
             onClick={() => setUseExternal(true)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+            className={`px-3 py-1.5 text-xs font-medium rounded-xl transition-colors whitespace-nowrap ${
               useExternal
-                ? 'bg-orange-600 text-white'
+                ? 'bg-orange-600 text-white font-semibold shadow-md'
                 : 'text-neutral-400 hover:bg-neutral-900 hover:text-white'
             }`}
           >
@@ -368,12 +368,12 @@ export const WsrvOptimizer: React.FC<WsrvOptimizerProps> = ({
 
           {/* Snippet Exporter */}
           <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 overflow-hidden shadow-sm">
-            <div className="flex items-center justify-between border-b border-neutral-800 px-4 py-2.5 bg-neutral-950">
-              <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-800 px-4 py-2.5 bg-neutral-950">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
                 <button
                   type="button"
                   onClick={() => setActiveCode('url')}
-                  className={`text-xs px-2.5 py-1 rounded-md transition-colors ${
+                  className={`text-xs px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap ${
                     activeCode === 'url'
                       ? 'bg-orange-600 text-white font-semibold'
                       : 'text-neutral-400 hover:text-white'
@@ -384,7 +384,7 @@ export const WsrvOptimizer: React.FC<WsrvOptimizerProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveCode('wsrv')}
-                  className={`text-xs px-2.5 py-1 rounded-md transition-colors ${
+                  className={`text-xs px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap ${
                     activeCode === 'wsrv'
                       ? 'bg-orange-600 text-white font-semibold'
                       : 'text-neutral-400 hover:text-white'
@@ -395,7 +395,7 @@ export const WsrvOptimizer: React.FC<WsrvOptimizerProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveCode('html')}
-                  className={`text-xs px-2.5 py-1 rounded-md transition-colors ${
+                  className={`text-xs px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap ${
                     activeCode === 'html'
                       ? 'bg-orange-600 text-white font-semibold'
                       : 'text-neutral-400 hover:text-white'
@@ -406,7 +406,7 @@ export const WsrvOptimizer: React.FC<WsrvOptimizerProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveCode('react')}
-                  className={`text-xs px-2.5 py-1 rounded-md transition-colors ${
+                  className={`text-xs px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap ${
                     activeCode === 'react'
                       ? 'bg-orange-600 text-white font-semibold'
                       : 'text-neutral-400 hover:text-white'

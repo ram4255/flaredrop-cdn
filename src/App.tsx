@@ -263,7 +263,7 @@ export default function App() {
         </div>
       )}
 
-      <main className="flex-1 pb-16">
+      <main className="flex-1 pb-28 md:pb-16">
         {activeTab === 'media' && (
           <MediaStorage
             assets={assets}
@@ -301,7 +301,7 @@ export default function App() {
         )}
       </main>
 
-      <footer className="border-t border-neutral-800 bg-neutral-900/50 py-4 text-center text-xs text-neutral-400">
+      <footer className="border-t border-neutral-800 bg-neutral-900/50 py-4 pb-20 md:pb-4 text-center text-xs text-neutral-400">
         <div className="mx-auto max-w-7xl px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <div>
             <strong className="text-white">FlareDrop CDN</strong> · 100% Free Cloudflare D1 Storage &amp; Edge Delivery

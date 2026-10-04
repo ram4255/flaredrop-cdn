@@ -40,7 +40,7 @@ export const DeployCenter: React.FC<DeployCenterProps> = ({
   };
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
+    <div className="mx-auto max-w-7xl px-3 sm:px-6 lg:px-8 py-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-800 pb-5">
         <div>
@@ -48,7 +48,7 @@ export const DeployCenter: React.FC<DeployCenterProps> = ({
             <Github className="h-4 w-4" />
             <span>Open Source Repository · Cloudflare Deploy Button Integration</span>
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-white sm:text-2xl">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
             GitHub Repository &amp; README Deploy Button
           </h1>
           <p className="mt-1 text-xs text-neutral-400">
@@ -60,7 +60,7 @@ export const DeployCenter: React.FC<DeployCenterProps> = ({
           type="button"
           onClick={handleDownloadZip}
           disabled={isExporting}
-          className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-orange-500 transition-colors whitespace-nowrap"
+          className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-orange-500 transition-colors whitespace-nowrap"
         >
           <FolderArchive className="h-4 w-4" />
           <span>{isExporting ? 'Packing...' : 'Download Repo (.zip)'}</span>
@@ -68,14 +68,14 @@ export const DeployCenter: React.FC<DeployCenterProps> = ({
       </div>
 
       {/* GitHub README Button Section */}
-      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-6 space-y-4">
+      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-4 sm:p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-800 pb-4">
           <div>
             <h2 className="text-sm font-bold text-white flex items-center gap-2">
               <span>README.md Deploy Button (Like Vercel Deploy Button)</span>
             </h2>
             <p className="text-xs text-neutral-400 mt-0.5">
-              Embed this button in your GitHub repository. When users click it on GitHub, Cloudflare automatically provisions the Worker, D1 DB, and R2 bucket.
+              Embed this button in your GitHub repository. When users click it on GitHub, Cloudflare automatically provisions the Worker and D1 Database (100% Free, Zero Credit Card Required).
             </p>
           </div>
 
