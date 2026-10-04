@@ -9,7 +9,6 @@ import { MediaStorage } from './components/MediaStorage';
 import { WsrvOptimizer } from './components/WsrvOptimizer';
 import { SettingsView } from './components/SettingsView';
 import { DeployCenter } from './components/DeployCenter';
-import { OneTimeSetup } from './components/OneTimeSetup';
 import { AdminLogin } from './components/AdminLogin';
 import { AdminUser, MediaAsset, CloudflareDeployConfig } from './types';
 import { generateCloudflareTemplates } from './lib/cloudflare-templates';
@@ -18,11 +17,6 @@ import { optimizeImageClientSide } from './lib/client-optimizer';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'media' | 'optimizer' | 'settings' | 'deploy'>('media');
-
-  // Check if one-time onboarding has been completed
-  const [isInitialized, setIsInitialized] = useState<boolean>(() => {
-    return localStorage.getItem('flaredrop_initialized') === 'true';
-  });
 
   const [adminUser, setAdminUser] = useState<AdminUser | null>(() => {
     const saved = localStorage.getItem('flaredrop_admin_user');
@@ -34,6 +28,10 @@ export default function App() {
       }
     }
     return null;
+  });
+
+  const [authToken, setAuthToken] = useState<string | null>(() => {
+    return localStorage.getItem('flaredrop_auth_token') || null;
   });
 
   // Fresh secret generation function
@@ -81,16 +79,6 @@ export default function App() {
   useEffect(() => {
     const syncBackend = async () => {
       try {
-        // Check backend setup status
-        const statusRes = await fetch('/api/setup/status').catch(() => null);
-        if (statusRes && statusRes.ok) {
-          const statusData = await statusRes.json();
-          if (statusData.initialized) {
-            setIsInitialized(true);
-            localStorage.setItem('flaredrop_initialized', 'true');
-          }
-        }
-
         // Fetch stored media assets from D1
         const mediaRes = await fetch('/api/media').catch(() => null);
         if (mediaRes && mediaRes.ok) {
@@ -137,14 +125,20 @@ export default function App() {
 
       setUploadNotice(`Client optimized: ${Math.round(opt.originalSize / 1024)}KB ➔ ${Math.round(opt.optimizedSize / 1024)}KB (${opt.savingsPercent}% savings). Uploading to Cloudflare D1...`);
 
-      // 2. Upload Optimized Image to Cloudflare D1
+      // 2. Upload Optimized Image to Cloudflare D1 with JWT Authorization
       const formData = new FormData();
       formData.append('file', opt.blob, opt.filename);
       formData.append('width', opt.width.toString());
       formData.append('height', opt.height.toString());
 
+      const headers: Record<string, string> = {};
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+
       const res = await fetch('/api/media/upload', {
         method: 'POST',
+        headers,
         body: formData,
       }).catch(() => null);
 
@@ -200,7 +194,10 @@ export default function App() {
 
   const handleDeleteAsset = async (id: string) => {
     try {
-      await fetch(`/api/media/${id}`, { method: 'DELETE' }).catch(() => null);
+      const headers: Record<string, string> = {};
+      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+
+      await fetch(`/api/media/${id}`, { method: 'DELETE', headers }).catch(() => null);
     } catch (e) {
       console.warn('Delete request failed:', e);
     }
@@ -215,16 +212,18 @@ export default function App() {
     setActiveTab('optimizer');
   };
 
-  // One-time setup completion
-  const handleCompleteOneTimeSetup = (user: AdminUser) => {
+  const handleLoginSuccess = (user: AdminUser, token: string) => {
     setAdminUser(user);
-    setIsInitialized(true);
-    localStorage.setItem('flaredrop_initialized', 'true');
+    setAuthToken(token);
     localStorage.setItem('flaredrop_admin_user', JSON.stringify(user));
+    localStorage.setItem('flaredrop_auth_token', token);
   };
 
   const handleLogout = () => {
     setAdminUser(null);
+    setAuthToken(null);
+    localStorage.removeItem('flaredrop_admin_user');
+    localStorage.removeItem('flaredrop_auth_token');
   };
 
   const handleDownloadZip = async () => {
@@ -237,23 +236,12 @@ export default function App() {
     }
   };
 
-  // 1. One-Time Setup on First Deploy (Only happens once!)
-  if (!isInitialized) {
-    return (
-      <OneTimeSetup
-        config={config}
-        onComplete={handleCompleteOneTimeSetup}
-      />
-    );
-  }
-
-  // 2. Authentication Login (If owner logged out)
+  // Authentication Login (If owner logged out)
   if (!adminUser) {
     return (
       <AdminLogin
-        onLoginSuccess={(user) => setAdminUser(user)}
+        onLoginSuccess={handleLoginSuccess}
         registeredUser={adminUser}
-        onGoToOnboarding={() => setIsInitialized(false)}
       />
     );
   }
@@ -298,6 +286,7 @@ export default function App() {
           <SettingsView
             config={config}
             adminUser={adminUser}
+            authToken={authToken}
             onRegenerateSecret={handleRegenerateSecrets}
             onLogout={handleLogout}
           />

@@ -11,6 +11,15 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS api_keys (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  key_prefix TEXT NOT NULL,
+  key_hash TEXT UNIQUE NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  last_used_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS images (
   id TEXT PRIMARY KEY,
   filename TEXT NOT NULL,
