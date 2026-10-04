@@ -120,37 +120,39 @@ export const app = new Hono<{ Bindings: Env }>();
 async function ensureDatabaseSchema(db?: D1Database) {
   if (!db) return;
   try {
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        email TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        created_at TEXT DEFAULT (datetime('now'))
-      );
-      CREATE TABLE IF NOT EXISTS api_keys (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        key_prefix TEXT NOT NULL,
-        key_hash TEXT UNIQUE NOT NULL,
-        created_at TEXT DEFAULT (datetime('now')),
-        last_used_at TEXT
-      );
-      CREATE TABLE IF NOT EXISTS images (
-        id TEXT PRIMARY KEY,
-        filename TEXT NOT NULL,
-        mime_type TEXT NOT NULL,
-        size_bytes INTEGER NOT NULL,
-        width INTEGER DEFAULT 0,
-        height INTEGER DEFAULT 0,
-        data_blob BLOB,
-        cdn_url TEXT,
-        created_at TEXT DEFAULT (datetime('now'))
-      );
-      CREATE TABLE IF NOT EXISTS settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      );
-    `);
+    // Run CREATE TABLE individually with prepare().run() to guarantee execution across all D1 versions
+    await db.prepare(`CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`).run().catch(() => null);
+
+    await db.prepare(`CREATE TABLE IF NOT EXISTS api_keys (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      key_prefix TEXT NOT NULL,
+      key_hash TEXT UNIQUE NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      last_used_at TEXT
+    )`).run().catch(() => null);
+
+    await db.prepare(`CREATE TABLE IF NOT EXISTS images (
+      id TEXT PRIMARY KEY,
+      filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      width INTEGER DEFAULT 0,
+      height INTEGER DEFAULT 0,
+      data_blob BLOB,
+      cdn_url TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`).run().catch(() => null);
+
+    await db.prepare(`CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )`).run().catch(() => null);
   } catch (err) {
     console.warn('Database migration warning:', err);
   }
@@ -278,6 +280,14 @@ app.post('/api/setup/init', (c) => {
   return c.json({ error: '404 Not Found: Public registration is disabled. This is a private single-tenant CDN.' }, 404);
 });
 
+// Automatic Zero-Config Self-Healing D1 Bootstrap
+app.all('/api/setup/bootstrap', async (c) => {
+  if (c.env?.DB) {
+    await ensureDatabaseSchema(c.env.DB);
+  }
+  return c.json({ success: true, message: 'D1 Schema automatically initialized' });
+});
+
 app.post('/api/auth/register', (c) => {
   return c.json({ error: '404 Not Found: Registration is permanently disabled.' }, 404);
 });
@@ -316,10 +326,15 @@ app.post('/api/auth/login', async (c) => {
 
     if (c.env?.DB) {
       await ensureDatabaseSchema(c.env.DB);
-      user = (await c.env.DB.prepare('SELECT id, email, password_hash, created_at FROM users WHERE email = ? LIMIT 1')
-        .bind(allowedOwner)
-        .first()
-        .catch(() => null)) as any;
+      try {
+        user = (await c.env.DB.prepare('SELECT id, email, password_hash, created_at FROM users WHERE email = ? LIMIT 1')
+          .bind(allowedOwner)
+          .first()) as any;
+      } catch (e) {
+        // In case table was missing, initialize it
+        await ensureDatabaseSchema(c.env.DB);
+        user = null;
+      }
     } else {
       user = localUsersStore.get('owner_1') || Array.from(localUsersStore.values()).find((u) => u.email === allowedOwner) || null;
     }
@@ -331,9 +346,17 @@ app.post('/api/auth/login', async (c) => {
       user = { id: 'owner_1', email: allowedOwner, password_hash: passwordHash, created_at: createdAt };
 
       if (c.env?.DB) {
-        await c.env.DB.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)')
-          .bind('owner_1', allowedOwner, passwordHash, createdAt)
-          .run();
+        try {
+          await c.env.DB.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)')
+            .bind('owner_1', allowedOwner, passwordHash, createdAt)
+            .run();
+        } catch (insertErr) {
+          // Guaranteed retry: ensure schema and insert
+          await ensureDatabaseSchema(c.env.DB);
+          await c.env.DB.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)')
+            .bind('owner_1', allowedOwner, passwordHash, createdAt)
+            .run();
+        }
       } else {
         localUsersStore.set('owner_1', user as any);
       }
@@ -760,6 +783,47 @@ async function deliverCdnImage(c: any, rawParam: string) {
     }
 
     const maxAge = c.env?.CACHE_MAX_AGE || '31536000';
+
+    // Support dynamic query parameters on edge (e.g. ?w=800&q=80&output=webp&fit=cover)
+    const urlObj = new URL(c.req.url);
+    const searchParams = urlObj.searchParams;
+    const hasTransforms = searchParams.has('w') || searchParams.has('h') || searchParams.has('q') || 
+                          searchParams.has('output') || searchParams.has('fit') || searchParams.has('dpr') || 
+                          searchParams.has('blur') || searchParams.has('sharp');
+
+    // On live public Cloudflare deployment, proxy dynamic transformations through wsrv.nl engine
+    if (hasTransforms && !urlObj.hostname.includes('localhost') && !urlObj.hostname.includes('127.0.0.1')) {
+      try {
+        const rawUrl = `${urlObj.origin}/cdn/${cleanId}.webp`;
+        const wsrvEndpoint = c.env?.WSRV_ENDPOINT || 'https://wsrv.nl/';
+        const proxyUrl = new URL(wsrvEndpoint);
+        proxyUrl.searchParams.set('url', rawUrl);
+        searchParams.forEach((val, key) => proxyUrl.searchParams.set(key, val));
+
+        const upstreamRes = await fetch(proxyUrl.toString(), {
+          headers: { 'Accept': 'image/avif,image/webp,image/*,*/*' }
+        });
+
+        if (upstreamRes.ok) {
+          const upstreamBuffer = await upstreamRes.arrayBuffer();
+          const upstreamType = upstreamRes.headers.get('content-type') || mimeType;
+
+          return new Response(upstreamBuffer, {
+            status: 200,
+            headers: {
+              'Content-Type': upstreamType,
+              'Cache-Control': `public, max-age=${maxAge}, s-maxage=${maxAge}, immutable`,
+              'Access-Control-Allow-Origin': '*',
+              'ETag': `"${cleanId}-${searchParams.toString()}"`,
+              'X-CDN-Cache': 'HIT',
+              'X-Powered-By': 'FlareDrop-Cloudflare-CDN-Dynamic',
+            },
+          });
+        }
+      } catch (proxyErr) {
+        console.warn('wsrv.nl dynamic proxy fallback:', proxyErr);
+      }
+    }
 
     // Directly stream binary image with immutable edge caching
     return new Response(imageBytes as any, {

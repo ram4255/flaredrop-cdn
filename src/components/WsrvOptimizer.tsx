@@ -28,8 +28,10 @@ export const WsrvOptimizer: React.FC<WsrvOptimizerProps> = ({
   const [externalUrl, setExternalUrl] = useState('https://images.unsplash.com/photo-1579783902614-a3fb3927b675');
   const [useExternal, setUseExternal] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-  const [activeCode, setActiveCode] = useState<'url' | 'html' | 'react'>('url');
+  const [activeCode, setActiveCode] = useState<'url' | 'wsrv' | 'html' | 'react'>('url');
   const [imageError, setImageError] = useState(false);
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://flaredrop.workers.dev';
 
   const activeSourceUrl = useMemo(() => {
     if (useExternal && externalUrl) return externalUrl;
@@ -41,30 +43,65 @@ export const WsrvOptimizer: React.FC<WsrvOptimizerProps> = ({
     return buildWsrvUrl(activeSourceUrl, params);
   }, [activeSourceUrl, params]);
 
+  // Clean FlareDrop CDN URL format (e.g. https://your-worker.workers.dev/cdn/img_123.webp?w=800&q=80)
+  const cleanCdnUrl = useMemo(() => {
+    if (useExternal && externalUrl) {
+      return buildWsrvUrl(externalUrl, params);
+    }
+
+    const currentAsset = selectedAsset || assets[0];
+    const assetId = currentAsset ? currentAsset.id : 'image';
+    const baseCdn = currentAsset?.cdnUrl || `${origin}/cdn/${assetId}.webp`;
+    const cleanBase = baseCdn.split('?')[0];
+
+    const queryParts: string[] = [];
+    if (params.width && params.width > 0) queryParts.push(`w=${params.width}`);
+    if (params.height && params.height > 0) queryParts.push(`h=${params.height}`);
+    if (params.quality && params.quality >= 1 && params.quality <= 100) queryParts.push(`q=${params.quality}`);
+    if (params.format && params.format !== 'original') queryParts.push(`output=${params.format}`);
+    if (params.fit && params.fit !== 'cover') queryParts.push(`fit=${params.fit}`);
+    if (params.dpr && params.dpr > 1) queryParts.push(`dpr=${params.dpr}`);
+    if (params.blur && params.blur > 0) queryParts.push(`blur=${params.blur}`);
+    if (params.sharp && params.sharp > 0) queryParts.push(`sharp=${params.sharp}`);
+
+    return queryParts.length > 0 ? `${cleanBase}?${queryParts.join('&')}` : cleanBase;
+  }, [useExternal, externalUrl, selectedAsset, assets, params, origin]);
+
   const copyToClipboard = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
     setCopied(key);
     setTimeout(() => setCopied(null), 2000);
   };
 
-  const htmlSnippet = `<picture>
-  <source type="image/avif" srcset="${buildWsrvUrl(activeSourceUrl, { ...params, format: 'avif' })}" />
-  <source type="image/webp" srcset="${buildWsrvUrl(activeSourceUrl, { ...params, format: 'webp' })}" />
+  const htmlSnippet = useMemo(() => {
+    const avifUrl = cleanCdnUrl.includes('output=')
+      ? cleanCdnUrl.replace(/output=[^&]+/, 'output=avif')
+      : (cleanCdnUrl.includes('?') ? `${cleanCdnUrl}&output=avif` : `${cleanCdnUrl}?output=avif`);
+    const webpUrl = cleanCdnUrl.includes('output=')
+      ? cleanCdnUrl.replace(/output=[^&]+/, 'output=webp')
+      : (cleanCdnUrl.includes('?') ? `${cleanCdnUrl}&output=webp` : `${cleanCdnUrl}?output=webp`);
+
+    return `<picture>
+  <source type="image/avif" srcset="${avifUrl}" />
+  <source type="image/webp" srcset="${webpUrl}" />
   <img 
-    src="${wsrvUrl}" 
+    src="${cleanCdnUrl}" 
     alt="Optimized media via FlareDrop CDN" 
     loading="lazy" 
     decoding="async" 
     width="${params.width || 800}" 
   />
 </picture>`;
+  }, [cleanCdnUrl, params.width]);
 
-  const reactSnippet = `<img
-  src="${wsrvUrl}"
+  const reactSnippet = useMemo(() => {
+    return `<img
+  src="${cleanCdnUrl}"
   alt="CDN Media"
   loading="lazy"
   className="w-full h-auto object-cover rounded-lg"
 />`;
+  }, [cleanCdnUrl]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
@@ -316,7 +353,7 @@ export const WsrvOptimizer: React.FC<WsrvOptimizerProps> = ({
               </div>
             ) : (
               <img
-                src={wsrvUrl}
+                src={useExternal ? wsrvUrl : (selectedAsset?.thumbnailUrl || activeSourceUrl)}
                 alt="Optimized preview"
                 referrerPolicy="no-referrer"
                 onError={() => setImageError(true)}
@@ -325,7 +362,7 @@ export const WsrvOptimizer: React.FC<WsrvOptimizerProps> = ({
             )}
 
             <div className="absolute bottom-3 right-3 bg-neutral-900/90 text-white text-[10px] font-mono px-2 py-1 rounded border border-neutral-800">
-              wsrv.nl · {params.format.toUpperCase()} · Q{params.quality}
+              FlareDrop Edge · {params.format.toUpperCase()} · Q{params.quality}
             </div>
           </div>
 
@@ -343,6 +380,17 @@ export const WsrvOptimizer: React.FC<WsrvOptimizerProps> = ({
                   }`}
                 >
                   CDN URL
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveCode('wsrv')}
+                  className={`text-xs px-2.5 py-1 rounded-md transition-colors ${
+                    activeCode === 'wsrv'
+                      ? 'bg-orange-600 text-white font-semibold'
+                      : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  Engine URL
                 </button>
                 <button
                   type="button"
@@ -371,7 +419,8 @@ export const WsrvOptimizer: React.FC<WsrvOptimizerProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  let text = wsrvUrl;
+                  let text = cleanCdnUrl;
+                  if (activeCode === 'wsrv') text = wsrvUrl;
                   if (activeCode === 'html') text = htmlSnippet;
                   if (activeCode === 'react') text = reactSnippet;
                   copyToClipboard(text, activeCode);
@@ -386,7 +435,8 @@ export const WsrvOptimizer: React.FC<WsrvOptimizerProps> = ({
             <div className="p-3 bg-neutral-950 font-mono text-xs text-neutral-200 overflow-x-auto max-h-40">
               <pre>
                 <code>
-                  {activeCode === 'url' && wsrvUrl}
+                  {activeCode === 'url' && cleanCdnUrl}
+                  {activeCode === 'wsrv' && wsrvUrl}
                   {activeCode === 'html' && htmlSnippet}
                   {activeCode === 'react' && reactSnippet}
                 </code>

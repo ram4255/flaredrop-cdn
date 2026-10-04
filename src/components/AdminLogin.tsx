@@ -29,13 +29,24 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({
     setIsLoading(true);
 
     try {
-      const res = await fetch('/api/auth/login', {
+      let res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), password }),
       });
 
-      const data = await res.json();
+      let data = await res.json();
+
+      // Automatic Zero-Config Self-Healing: If D1 table was cold or not initialized yet, self-heal and retry!
+      if (!res.ok && data?.error && (data.error.includes('no such table') || data.error.includes('D1_ERROR'))) {
+        await fetch('/api/setup/bootstrap', { method: 'POST' }).catch(() => null);
+        res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.trim(), password }),
+        });
+        data = await res.json();
+      }
 
       if (res.status === 429) {
         setIsRateLimited(true);
